@@ -108,6 +108,20 @@ def get_module_info(module_name, module_infos):
             return module
     return None
 
+def get_all_registers(module, path, module_infos):
+    spy_signals = [] # reg, path
+
+    # get all regs from the module
+    for reg in module.regs_matches:
+        spy_signals.append((reg, path))
+
+    # get all regs from all instantiated modules
+    for inst in module.instances:
+        inst_module = get_module_info(inst[0], module_infos)
+        spy_signals.extend(get_all_registers(inst_module, f"{path}.{inst[1]}", module_infos))
+    
+    return spy_signals
+
 class module_info:
     def __init__(self, sv_code):
         self.sv_code = sv_code
@@ -115,8 +129,8 @@ class module_info:
         self.module_match = re.Match[str] | None
         self.param_matches = {}
         self.port_matches = {}
-        self.regs_matches = {}
-        self.instances = [(str, str)]
+        self.regs_matches = []
+        self.instances = []
     
     def parse(self):
         self.module_match = re.search(module_pattern, self.sv_code)
@@ -128,8 +142,8 @@ class module_info:
             port_list = self.module_match['ports']
             self.port_matches = re.finditer(port_pattern, port_list)
 
-            regs_list = self.module_match['body']
-            self.regs_matches = re.finditer(regs_pattern, regs_list)
+            body = self.module_match['body']
+            self.regs_matches = list(re.finditer(regs_pattern, body))
 
             self.module_name = self.module_match['module_name']
 
@@ -138,14 +152,14 @@ class module_info:
             inst_pattern = re.compile(rf"\b({'|'.join(module_names)})\b\s+(?:#\(.*?\))\s*(\w+)\s*\(")
             instances = list(re.finditer(inst_pattern, self.module_match['body'])) # type: ignore
             for inst in instances:
-                print(f"Found instance in {self.module_name}: {inst.group(2)}")
+                print(f"Found instance in {self.module_name}: {inst.group(1)} - {inst.group(2)}")
                 self.instances.append((inst.group(1), inst.group(2)))
 
 
 def main():
     module_infos = []
     module_names = []
-    spy_signals = [(str, str)] # name, path
+    spy_signals = [] # reg, path
 
     for root, _, files in os.walk(path_to_rtl):
         for file in files:
@@ -166,6 +180,12 @@ def main():
         
     top_module = find_top_module(module_infos)
     print(f"Top module is detected: {top_module.module_name}")
+
+    spy_signals = get_all_registers(top_module, top_instance_name, module_infos)
+
+    for sig in spy_signals:
+        reg = sig[0]
+        print(f"Signal: {reg['name']}, path: {sig[1]}")
 
 
 if __name__ == "__main__":
