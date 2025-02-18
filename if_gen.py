@@ -143,6 +143,30 @@ class module_info:
 
 
 def main():
+    module_infos = []
+    module_names = []
+    spy_signals = [(str, str)] # name, path
+
+    for root, _, files in os.walk(path_to_rtl):
+        for file in files:
+            if file.endswith((".sv", ".v")):
+                file_path = os.path.join(root, file)
+                content = ""
+                with open(file_path, "r", encoding="utf-8") as f:
+                    content = f.read()
+                    module = module_info(content)
+                    module.parse()
+                    module_infos.append(module)
+
+    for module in module_infos:
+        module_names.append(module.module_name)
+
+    for module in module_infos:
+        module.find_instances(module_names)
+        
+    top_module = find_top_module(module_infos)
+    print(f"Top module is detected: {top_module.module_name}")
+
 
 if __name__ == "__main__":
     main()
