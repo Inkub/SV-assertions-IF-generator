@@ -113,7 +113,7 @@ def get_all_registers(module, path, module_infos):
 
     # get all regs from the module
     for reg in module.regs_matches:
-        spy_signals.append((reg, path))
+        spy_signals.append((reg, f"{path}.{reg['name']}"))
 
     # get all regs from all instantiated modules
     for inst in module.instances:
@@ -128,7 +128,7 @@ class module_info:
         self.module_name = str | None
         self.module_match = re.Match[str] | None
         self.param_matches = {}
-        self.port_matches = {}
+        self.port_matches = []
         self.regs_matches = []
         self.instances = []
     
@@ -140,7 +140,7 @@ class module_info:
             self.param_matches = re.finditer(param_pattern, param_list)
 
             port_list = self.module_match['ports']
-            self.port_matches = re.finditer(port_pattern, port_list)
+            self.port_matches = list(re.finditer(port_pattern, port_list))
 
             body = self.module_match['body']
             self.regs_matches = list(re.finditer(regs_pattern, body))
@@ -187,6 +187,41 @@ def main():
         reg = sig[0]
         print(f"Signal: {reg['name']}, path: {sig[1]}")
 
+    params = top_module.module_match['parameters']
+    port_matches_list = top_module.port_matches
+    regs_list = [t[0] for t in spy_signals]
+
+    modified_ports = align_cols(port_matches_list, calc_max_type_width(port_matches_list), "input")
+    modified_regs = align_cols(regs_list, calc_max_type_width(regs_list), "// var: ")
+
+    # Create the interface entity
+    interface_entity = f"interface {top_module.module_name} ( {params} (\n  " + ",\n  ".join(modified_ports) + "\n);\n"
+
+    # Create spy signals declarations
+    spy_declarations = f"\n" + ";\n".join(modified_regs) + ";\n"
+
+    # Assigns the spy signals to the RTL
+    spy_assigns = ""
+    for spy in spy_signals:
+        row = f"assign {spy[0]['name']} = {spy[1]};\n"
+        spy_assigns += row
+
+    # Load template from the current directory
+    env = Environment(loader=FileSystemLoader("."))  
+    template = env.get_template("asrt_if_template.j2")
+
+    # Data to insert into the template
+    data = {
+        "entity": interface_entity,
+        "spy_decl": spy_declarations,
+        "spy_assigns": spy_assigns
+    }
+
+    # Render the template
+    output = template.render(data)
+
+    with open("generated_interface.sv", "w") as f:
+        f.write(output)
 
 if __name__ == "__main__":
     main()
