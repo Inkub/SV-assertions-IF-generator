@@ -163,6 +163,19 @@ def get_all_registers(module, path, module_infos):
     
     return spy_signals
 
+def insert_module_names(regs: list[str], spy_signals: list) -> list[str]:
+    module_name = ""
+    modified_regs = []
+
+    for i in range(len(spy_signals)):
+        spy = spy_signals[i]
+        if spy[2] != module_name:
+            module_name = spy[2]
+            modified_regs.append(f"{get_module_title(module_name)}")
+        modified_regs.append(regs[i])
+    
+    return modified_regs
+
 def parse_args():
     # Set up argument parser
     parser = argparse.ArgumentParser(description="System Verilog assertion interface generator")
@@ -297,8 +310,27 @@ def main():
     # Render the template
     output = template.render(data)
 
-    with open("generated_interface.sv", "w") as f:
+    output_path = f"gen_{if_name}.sv"
+    if args.output:
+        output_path = f"{args.output}/gen_{if_name}.sv"
+
+    output_dir = os.path.dirname(output_path)
+    if output_dir and not os.path.exists(output_dir):
+        os.makedirs(output_dir, exist_ok=True)
+
+    # Check if the interface exists
+    if os.path.exists(output_path):
+        user_input = input(f"File '{output_path}' already exists. Do you want to regenerate it? [y/n]: ").strip().lower()
+        
+        if user_input not in ["y", "yes"]:
+            print("Aborting file generation.")
+            exit(0)
+
+    # generate interface file
+    with open(output_path, "w") as f:
         f.write(output)
+
+    logging.info(f"Interface successfully generated into: {output_path}")
 
 if __name__ == "__main__":
     main()
