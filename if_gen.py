@@ -1,5 +1,7 @@
 import os
 import re
+import argparse
+import logging
 from jinja2 import Environment, FileSystemLoader
 
 path_to_rtl = "./rtl"
@@ -122,6 +124,37 @@ def get_all_registers(module, path, module_infos):
     
     return spy_signals
 
+def parse_args():
+    # Set up argument parser
+    parser = argparse.ArgumentParser(description="System Verilog assertion interface generator")
+
+    # verbosity
+    parser.add_argument("-v", "--verbose", action="count", default=0,
+                        help="Increase verbosity level (-v)")
+    
+    # Path to the RTL
+    parser.add_argument("-i", "--input", nargs='+', default=[path_to_rtl],
+                        help="Path to the RTL input files or directory")
+
+    # Output file directory
+    parser.add_argument("-o", "--output", help="Path to the generated file directory")
+    
+    args = parser.parse_args()
+
+    # Validate input path
+    for input_arg in args.input:
+        if not os.path.exists(input_arg):
+            logging.error(f" Input path '{input_arg}' does not exist.")
+            exit(1)
+    
+    # Validate input path
+    if args.output:
+        if os.path.splitext(args.output)[1]:
+            logging.error(f" Output path should be a directory, not a file.")
+            exit(1)
+    
+    return args
+
 class module_info:
     def __init__(self, sv_code):
         self.sv_code = sv_code
@@ -212,7 +245,12 @@ def main():
 
     # Data to insert into the template
     data = {
+        "if_name": if_name,
+        "module_name": top_module.module_name,
+        "parameter_descriptions": parameter_descriptions,
+        "port_descriptions": port_descriptions,
         "entity": interface_entity,
+        "top_instance": top_instance_name,
         "spy_decl": spy_declarations,
         "spy_assigns": spy_assigns
     }
