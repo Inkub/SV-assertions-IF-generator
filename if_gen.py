@@ -7,11 +7,12 @@ from jinja2 import Environment, FileSystemLoader
 path_to_rtl = "./rtl"
 top_module_name = ""
 top_instance_name = "i_dut" # Replace with top module instance_name
+interface_name = ""
 
 module_pattern = re.compile(r"""
     module\s+
                     (?P<module_name>\w+)        # Named group: module_name
-    \s*\#?\s*\(?    (?P<parameters>.*?\))?      # Named group: parameters
+    \s\.*?\#?\s*\(? (?P<parameters>.*?\))?      # Named group: parameters
     \s*\(           (?P<ports>.*?)\)\s*;        # Named group: ports
     \s*             (?P<body>.*?)endmodule      # Named group: body
 """, re.VERBOSE | re.DOTALL)
@@ -68,6 +69,8 @@ def align_cols(match_list, max_width, prefix = ""):
             str += ' '
         
         str += match['name']
+        if prefix == "// var: ":
+            str += ';'
         modified.append(str)
     return modified
 
@@ -96,11 +99,13 @@ def find_top_module(module_infos):
                     if not is_instantiated(module.module_name, module_infos):
                         potential_tops.append(module)
             if len(potential_tops) == 0:
-                raise Exception("Top module wasn't found. Try to specify it explicitly")
+                logging.error(" Top module wasn't found. Try to specify it explicitly")
+                exit(1)
             elif len(potential_tops) == 1:
                 top_module = potential_tops[0]
             else:
-                raise Exception(f"More than one potential top module detected: {', '.join([str(lst.module_name) for lst in potential_tops])}. Try to specify it explicitly")
+                logging.error(f" More than one potential top module detected: {', '.join([str(lst.module_name) for lst in potential_tops])}. Try to specify it explicitly")
+                exit(1)
     
     return top_module
 
@@ -111,11 +116,11 @@ def get_module_info(module_name, module_infos):
     return None
 
 def get_all_registers(module, path, module_infos):
-    spy_signals = [] # reg, path
+    spy_signals = [] # reg, path, module_name
 
     # get all regs from the module
     for reg in module.regs_matches:
-        spy_signals.append((reg, f"{path}.{reg['name']}"))
+        spy_signals.append((reg, f"{path}.{reg['name']}", module.module_name))
 
     # get all regs from all instantiated modules
     for inst in module.instances:
@@ -160,7 +165,7 @@ class module_info:
         self.sv_code = sv_code
         self.module_name = str | None
         self.module_match = re.Match[str] | None
-        self.param_matches = {}
+        self.param_matches = []
         self.port_matches = []
         self.regs_matches = []
         self.instances = []
@@ -170,7 +175,7 @@ class module_info:
 
         if self.module_match:
             param_list = self.module_match['parameters']
-            self.param_matches = re.finditer(param_pattern, param_list)
+            self.param_matches = list(re.finditer(param_pattern, param_list))
 
             port_list = self.module_match['ports']
             self.port_matches = list(re.finditer(port_pattern, port_list))
