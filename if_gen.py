@@ -115,6 +115,40 @@ def get_module_info(module_name, module_infos):
             return module
     return None
 
+def get_module_title(module_name : str) -> str:
+    title = "//"
+    prefix_len = int((84 - len(module_name)) / 2)
+
+    for _ in range(prefix_len):title += '-'
+    title += module_name.upper()
+
+    suffix_len = 86 - len(title)
+    for _ in range(suffix_len): title += '-'
+
+    title += "//"
+
+    title = "  " + title
+
+    return title
+
+def get_params_descriptions(params: list[re.Match]) -> str:
+    result = ""
+    for i in range(len(params)):
+        param = params[i]
+        result += f"//    {param['name']}"
+        if(i != len(params) - 1):
+            result += "\n"
+    return result
+
+def get_ports_descriptions(ports: list[re.Match]) -> str:
+    result = ""
+    for i in range(len(ports)):
+        port = ports[i]
+        result += f"//    {port['name']}"
+        if(i != len(ports) - 1):
+            result += "\n"
+    return result
+
 def get_all_registers(module, path, module_infos):
     spy_signals = [] # reg, path, module_name
 
