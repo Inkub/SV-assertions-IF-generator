@@ -237,58 +237,96 @@ class module_info:
             inst_pattern = re.compile(rf"\b({'|'.join(module_names)})\b\s+(?:#\(.*?\))\s*(\w+)\s*\(")
             instances = list(re.finditer(inst_pattern, self.module_match['body'])) # type: ignore
             for inst in instances:
-                print(f"Found instance in {self.module_name}: {inst.group(1)} - {inst.group(2)}")
+                logging.info(f"Found instance in {self.module_name}: {inst.group(1)} - {inst.group(2)}")
                 self.instances.append((inst.group(1), inst.group(2)))
 
 
-def main():
+def traverse_input_files(path: str) -> list[module_info]:
     module_infos = []
+
+    if os.path.isdir(path):
+        for root, _, files in os.walk(path):
+            for file in files:
+                if file.endswith((".sv", ".v")):
+                    file_path = os.path.join(root, file)
+                    content = ""
+                    with open(file_path, "r", encoding="utf-8") as f:
+                        content = f.read()
+                        module = module_info(content)
+                        module.parse()
+                        module_infos.append(module)
+    else:
+        content = ""
+        with open(path, "r", encoding="utf-8") as f:
+            content = f.read()
+            module = module_info(content)
+            module.parse()
+            module_infos.append(module)
+    return module_infos
+
+
+def main():
+
+    # get script arguments
+    args = parse_args()
+
+    # Configure logging based on verbosity level
+    log_level = logging.WARNING  # Default: Show only warnings and errors
+    if args.verbose == 1:
+        log_level = logging.INFO   # Show info messages
+
+    logging.basicConfig(level=log_level, format="%(levelname)s: %(message)s")
+
+    module_infos = []
+
+    for input_arg in args.input:
+        module_infos += traverse_input_files(input_arg)
+
     module_names = []
-    spy_signals = [] # reg, path
 
-    for root, _, files in os.walk(path_to_rtl):
-        for file in files:
-            if file.endswith((".sv", ".v")):
-                file_path = os.path.join(root, file)
-                content = ""
-                with open(file_path, "r", encoding="utf-8") as f:
-                    content = f.read()
-                    module = module_info(content)
-                    module.parse()
-                    module_infos.append(module)
-
+    # get all modules names
     for module in module_infos:
         module_names.append(module.module_name)
 
+    # get all instances names
     for module in module_infos:
         module.find_instances(module_names)
         
     top_module = find_top_module(module_infos)
-    print(f"Top module is detected: {top_module.module_name}")
+    logging.info(f"Top module is detected: {top_module.module_name}")
 
-    spy_signals = get_all_registers(top_module, top_instance_name, module_infos)
+    # interface name
+    if_name = interface_name
+    if if_name == "":
+        if_name = f"{top_module.module_name}_asrt_if"
 
-    for sig in spy_signals:
-        reg = sig[0]
-        print(f"Signal: {reg['name']}, path: {sig[1]}")
+    spy_signals = get_all_registers(top_module, "`PATH_TOP", module_infos)
 
-    params = top_module.module_match['parameters']
-    port_matches_list = top_module.port_matches
+    # get registers
     regs_list = [t[0] for t in spy_signals]
 
-    modified_ports = align_cols(port_matches_list, calc_max_type_width(port_matches_list), "input")
+    modified_ports = align_cols(top_module.port_matches, calc_max_type_width(top_module.port_matches), "input")
     modified_regs = align_cols(regs_list, calc_max_type_width(regs_list), "// var: ")
 
+    # insert relevant module names before registers SPYs declarations
+    modified_regs = insert_module_names(modified_regs, spy_signals)
+
+    # parameter descriptions
+    parameter_descriptions = get_params_descriptions(top_module.param_matches)
+
+    # port descriptions
+    port_descriptions= get_ports_descriptions(top_module.port_matches)
+
     # Create the interface entity
-    interface_entity = f"interface {top_module.module_name} ( {params} (\n  " + ",\n  ".join(modified_ports) + "\n);\n"
+    interface_entity = f"interface {if_name} #( {top_module.module_match['parameters']} (\n  " + ",\n  ".join(modified_ports) + "\n);"
 
     # Create spy signals declarations
-    spy_declarations = f"\n" + ";\n".join(modified_regs) + ";\n"
+    spy_declarations = f"\n\n".join(modified_regs)
 
     # Assigns the spy signals to the RTL
     spy_assigns = ""
     for spy in spy_signals:
-        row = f"assign {spy[0]['name']} = {spy[1]};\n"
+        row = f"  assign {spy[0]['name']} = {spy[1]};\n"
         spy_assigns += row
 
     # Load template from the current directory
