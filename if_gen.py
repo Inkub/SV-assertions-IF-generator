@@ -4,10 +4,20 @@ import argparse
 import logging
 from jinja2 import Environment, FileSystemLoader
 
+# Path to the RTL file or directory
 path_to_rtl = "./rtl"
+
+# Design top module name
 top_module_name = ""
-top_instance_name = "i_dut" # Replace with top module instance_name
+
+# Name of the DUT instance (replace with top module instance_name)
+top_instance_name = "i_dut"
+
+# Name of the generated assertion interface.
+# Default: gen_< top_module_name >_asrt_if 
 interface_name = ""
+
+#---------------------------------------------------------------------------------------#
 
 module_pattern = re.compile(r"""
     module\s+
@@ -264,6 +274,33 @@ def traverse_input_files(path: str) -> list[module_info]:
             module_infos.append(module)
     return module_infos
 
+def generate_if_bind(top_module: module_info, if_name: str) -> str:
+    bind = f"bind {top_module.module_name} {if_name}"
+
+    if len(top_module.param_matches) != 0:
+        max_length = 0
+        for param in top_module.param_matches:
+            if len(param["name"]) > max_length:
+                max_length = len(param["name"])
+
+        bind += " #(\n"
+        for i in range(len(top_module.param_matches)):
+            param_name = top_module.param_matches[i]["name"]
+            bind += f"  .{param_name} "
+            for _ in range(max_length - len(param_name)):
+                bind += ' '
+            bind += f"({param_name})"
+            if i != len(top_module.param_matches):
+                bind += ','
+            bind += '\n'
+        bind += ") "
+    else:
+        bind += "\n  "
+
+    bind += f"i_{if_name}(.*);"
+
+    return bind
+
 
 def main():
 
@@ -359,7 +396,7 @@ def main():
     # Check if the interface exists
     if os.path.exists(output_path):
         user_input = input(f"File '{output_path}' already exists. Do you want to regenerate it? [y/n]: ").strip().lower()
-        
+
         if user_input not in ["y", "yes"]:
             print("Aborting file generation.")
             exit(0)
@@ -369,6 +406,13 @@ def main():
         f.write(output)
 
     logging.info(f"Interface successfully generated into: {output_path}")
+
+    # Print out the interface's bind
+    print("Assertion interface bind:")
+    print("------------------------------------------------------------")
+    print(generate_if_bind(top_module, if_name))
+    print("------------------------------------------------------------")
+
 
 if __name__ == "__main__":
     main()
