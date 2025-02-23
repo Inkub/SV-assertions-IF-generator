@@ -17,6 +17,10 @@ top_instance_name = "i_dut"
 # Default: gen_< top_module_name >_asrt_if 
 interface_name = ""
 
+# Registers pattern suffix.
+# Default: _s
+reg_pattern_suffix = "_s"
+
 #---------------------------------------------------------------------------------------#
 
 module_pattern = re.compile(r"""
@@ -41,11 +45,11 @@ port_pattern = re.compile(r"""
     \s*(?P<name>\w+)                        # Named group: name
 """, re.VERBOSE | re.DOTALL)
 
-regs_pattern = re.compile(r"""
+regs_pattern = re.compile(f"""
     \s*(?P<type>logic|\w+\_t)              # Named group: type
     \s*(?P<width>\[.*?\])?                 # Named group: width
-    \s*(?:\w+(?<!\_s)\s*,)?
-    \s*(?P<name>\w+\_s)                    # Named group: name
+    \s*(?:\w+(?<!{reg_pattern_suffix})\s*,)?
+    \s*(?P<name>\w+{reg_pattern_suffix})   # Named group: name
     \s*(?:\w+)?\s*\;
 """, re.VERBOSE | re.DOTALL)
 
