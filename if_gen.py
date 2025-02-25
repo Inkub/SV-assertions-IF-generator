@@ -66,6 +66,13 @@ def calc_max_type_width(match_list):
     
     return max_type_width_len
 
+def calc_max_width(str_list: list[str]) -> int:
+    max_width = 0
+    for el in str_list:
+        if len(el) > max_width:
+            max_width = len(el)
+    return max_width
+
 def align_cols(match_list, max_width, prefix = ""):
     modified = []
     for match in match_list:
@@ -88,6 +95,16 @@ def align_cols(match_list, max_width, prefix = ""):
             str += ';'
         modified.append(str)
     return modified
+
+def align_str_col(cols: list[str]) -> list[str]:
+    max_width = calc_max_width(cols)
+    result = []
+    for col in cols:
+        modified = col
+        for _ in range(max_width - len(col)):
+            modified += ' '
+        result.append(modified)
+    return result
 
 def is_instantiated(module_name, module_infos):
     for module in module_infos:
@@ -396,10 +413,10 @@ def main():
 
     # Assigns the spy signals to the RTL
     spy_assigns = ""
+    modified_lhs = align_str_col([list(reg.values())[2] for reg in regs_list])
     for i in range(len(spy_signals)):
         spy = spy_signals[i]
-        reg_name = regs_list[i]["name"]
-        row = f"  assign {reg_name} = {spy[1]};\n"
+        row = f"  assign {modified_lhs[i]} = {spy[1]};\n"
         spy_assigns += row
 
     # Load template from the current directory
