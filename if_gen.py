@@ -266,7 +266,7 @@ def traverse_input_files(path: str) -> list[module_info]:
                     file_path = os.path.join(root, file)
                     content = ""
                     with open(file_path, "r", encoding="utf-8") as f:
-                        content = f.read()
+                        content = remove_sv_comments(f.read())
                         module = module_info(content)
                         module.parse()
                         module_infos.append(module)
@@ -320,6 +320,15 @@ def resolve_conflicts(spy_signals):
             result.append(sig[0]["name"])
 
     return result
+
+def remove_sv_comments(code):
+    # Remove multi-line comments
+    code = re.sub(r"/\*.*?\*/", "", code, flags=re.DOTALL)
+    
+    # Remove single-line comments
+    code = re.sub(r"//.*", "", code)
+    
+    return code
 
 def main():
 
