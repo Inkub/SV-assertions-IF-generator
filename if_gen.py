@@ -3,6 +3,7 @@ import re
 import argparse
 import logging
 from jinja2 import Environment, FileSystemLoader
+from collections import Counter
 
 # Path to the RTL file or directory
 path_to_rtl = "./rtl"
@@ -305,6 +306,20 @@ def generate_if_bind(top_module: module_info, if_name: str) -> str:
 
     return bind
 
+def resolve_conflicts(spy_signals):
+    reg_names = [t[0] for t in spy_signals]
+
+    counts = Counter(reg_names)
+    duplicates = [item for item, count in counts.items() if count > 1]
+
+    result = []
+    for sig in spy_signals:
+        if sig[0] in duplicates:
+            result.append(sig[1][10:].replace('.', '_')) # use path from without `PATH_TOP
+        else:
+            result.append(sig[0]["name"])
+
+    return result
 
 def main():
 
@@ -343,8 +358,14 @@ def main():
 
     spy_signals = get_all_registers(top_module, "`PATH_TOP", module_infos)
 
-    # get registers
-    regs_list = [t[0] for t in spy_signals]
+    # get list of signals
+    resolved_signals = resolve_conflicts(spy_signals)
+
+    spy_list = [t[0] for t in spy_signals]
+    regs_list = []
+
+    for i in range(len(resolved_signals)):
+        regs_list.append({"type": spy_list[i]["type"], "width": spy_list[i]["width"], "name": resolved_signals[i]})
 
     modified_ports = align_cols(top_module.port_matches, calc_max_type_width(top_module.port_matches), "input")
     modified_regs = align_cols(regs_list, calc_max_type_width(regs_list), "// var: ")
@@ -366,8 +387,10 @@ def main():
 
     # Assigns the spy signals to the RTL
     spy_assigns = ""
-    for spy in spy_signals:
-        row = f"  assign {spy[0]['name']} = {spy[1]};\n"
+    for i in range(len(spy_signals)):
+        spy = spy_signals[i]
+        reg_name = regs_list[i]["name"]
+        row = f"  assign {reg_name} = {spy[1]};\n"
         spy_assigns += row
 
     # Load template from the current directory
