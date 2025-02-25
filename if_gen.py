@@ -54,17 +54,18 @@ regs_pattern = re.compile(f"""
     \s*(?:\w+)?\s*\;
 """, re.VERBOSE | re.DOTALL)
 
+#---------------------------------------------------------------------------------------#
+
 def calc_max_type_width(match_list):
-    max_type_width_len = 0
+    rows = []
 
     for match in match_list:
-        width = ""
+        row = match['type']
         if match['width']:
-            width = match['width']
-        if max_type_width_len < (len(match['type']) + len(width)):
-            max_type_width_len = len(match['type']) + len(width)
-    
-    return max_type_width_len
+            row += ' '
+            row += match['width']
+        rows.append(row)
+    return calc_max_width(rows)
 
 def calc_max_width(str_list: list[str]) -> int:
     max_width = 0
