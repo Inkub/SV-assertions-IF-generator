@@ -196,6 +196,29 @@ def get_all_registers(module, path, module_infos):
     
     return spy_signals
 
+def get_all_ports(module, path, module_infos):
+    """
+    Recursively collect all port signals from a module and its instances.
+    
+    Args:
+        module: Current module to process
+        path: Current hierarchical path
+        module_infos: List of all module information objects
+        
+    Returns:
+        list: List of tuples containing (port, full_path, module_name)
+    """
+    spy_signals = [] # reg, path, module_name
+
+    for port in module.port_matches:
+        spy_signals.append((port, f"{path}.{port['name']}", module.module_name))
+
+    for inst in module.instances:
+        inst_module = get_module_info(inst[0], module_infos)
+        spy_signals.extend(get_all_ports(inst_module, f"{path}.{inst[1]}", module_infos))
+
+    return spy_signals
+
 def insert_module_names(regs: list[str], spy_signals: list) -> list[str]:
     module_name = ""
     modified_regs = []
@@ -383,19 +406,20 @@ def main():
     if if_name == "":
         if_name = f"{top_module.module_name}_asrt_if"
 
-    spy_signals = get_all_registers(top_module, "`PATH_TOP", module_infos)
+    spy_signals = [] # regex match, path, module_name
 
-    # get list of signals
-    resolved_signals = resolve_conflicts(spy_signals)
+    if args.mode == "registers":
+        spy_signals = resolve_conflicts(get_all_registers(top_module, "`PATH_TOP", module_infos))
+    elif args.mode == "ports":
+        spy_signals = resolve_port_conflicts(get_all_ports(top_module, "`PATH_TOP", module_infos))
+    else:
+        spy_signals = resolve_port_conflicts(get_all_ports(top_module, "`PATH_TOP", module_infos))
+        spy_signals.extend(resolve_conflicts(get_all_registers(top_module, "`PATH_TOP", module_infos)))
 
     spy_list = [t[0] for t in spy_signals]
-    regs_list = []
-
-    for i in range(len(resolved_signals)):
-        regs_list.append({"type": spy_list[i]["type"], "width": spy_list[i]["width"], "name": resolved_signals[i]})
 
     modified_ports = align_cols(top_module.port_matches, calc_max_type_width(top_module.port_matches), "input")
-    modified_regs = align_cols(regs_list, calc_max_type_width(regs_list), "// var: ")
+    modified_regs = align_cols(spy_list, calc_max_type_width(spy_list), "// var: ")
 
     # insert relevant module names before registers SPYs declarations
     modified_regs = insert_module_names(modified_regs, spy_signals)
@@ -414,7 +438,7 @@ def main():
 
     # Assigns the spy signals to the RTL
     spy_assigns = ""
-    modified_lhs = align_str_col([list(reg.values())[2] for reg in regs_list])
+    modified_lhs = align_str_col([spy[0]["name"] for spy in spy_signals])
     for i in range(len(spy_signals)):
         spy = spy_signals[i]
         row = f"  assign {modified_lhs[i]} = {spy[1]};\n"
