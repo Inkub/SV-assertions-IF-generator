@@ -271,16 +271,31 @@ def get_all_ports(module, path, module_infos):
 
     return spy_signals
 
-def insert_module_names(regs: list[str], spy_signals: list) -> list[str]:
+def insert_module_names(regs: list[str], spy_signals: list, args: argparse.Namespace, ports_count: int) -> list[str]:
     module_name = ""
     modified_regs = []
+    titles_inserted = 0
+
+    print(f"ports_count: {ports_count}")
 
     for i in range(len(spy_signals)):
         spy = spy_signals[i]
+
+        if i == ports_count and args.mode != "ports":
+            print(f"inserting registers divider at {ports_count} + {titles_inserted}")
+            modified_regs.insert(ports_count + titles_inserted,
+                                 "  //-------------------------------------REGISTERS--------------------------------------//")
+
         if spy[2] != module_name:
             module_name = spy[2]
             modified_regs.append(f"{get_module_title(module_name)}")
+            titles_inserted += 1
         modified_regs.append(regs[i])
+
+    # insert register/ports divider
+    if args.mode != "registers":
+        modified_regs.insert(0,
+                             "  //---------------------------------------PORTS----------------------------------------//")
     
     return modified_regs
 
@@ -578,14 +593,18 @@ def main():
         if_name = f"{top_module.module_name}_asrt_if"
 
     spy_signals = [] # regex match, path, module_name
+    ports_count = 0
 
     if args.mode == "registers":
         spy_signals = resolve_conflicts(get_all_registers(top_module, "`PATH_TOP", module_infos))
     elif args.mode == "ports":
         spy_signals = resolve_port_conflicts(get_all_ports(top_module, "`PATH_TOP", module_infos))
     else:
-        spy_signals = resolve_port_conflicts(get_all_ports(top_module, "`PATH_TOP", module_infos))
-        spy_signals.extend(resolve_conflicts(get_all_registers(top_module, "`PATH_TOP", module_infos)))
+        port_list = resolve_port_conflicts(get_all_ports(top_module, "`PATH_TOP", module_infos))
+        reg_list = resolve_conflicts(get_all_registers(top_module, "`PATH_TOP", module_infos))
+        spy_signals.extend(port_list)
+        spy_signals.extend(reg_list)
+        ports_count = len(port_list)
 
     spy_list = [t[0] for t in spy_signals]
 
@@ -593,7 +612,7 @@ def main():
     modified_regs = align_cols(spy_list, calc_max_type_width(spy_list), "// var: ")
 
     # insert relevant module names before registers SPYs declarations
-    modified_regs = insert_module_names(modified_regs, spy_signals)
+    modified_regs = insert_module_names(modified_regs, spy_signals, args, ports_count)
 
     # parameter descriptions
     parameter_descriptions = get_params_descriptions(top_module.param_matches)
