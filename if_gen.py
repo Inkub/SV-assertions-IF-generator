@@ -57,6 +57,15 @@ regs_pattern = re.compile(f"""
 #---------------------------------------------------------------------------------------#
 
 def calc_max_type_width(match_list):
+    """
+    Calculate the maximum width of type declarations in a list of regex matches.
+    
+    Args:
+        match_list: List of regex matches containing type and width information
+        
+    Returns:
+        int: Maximum width of type declarations
+    """
     rows = []
 
     for match in match_list:
@@ -68,6 +77,15 @@ def calc_max_type_width(match_list):
     return calc_max_width(rows)
 
 def calc_max_width(str_list: list[str]) -> int:
+    """
+    Calculate the maximum width of strings in a list.
+    
+    Args:
+        str_list: List of strings to measure
+        
+    Returns:
+        int: Maximum width of strings in the list
+    """
     max_width = 0
     for el in str_list:
         if len(el) > max_width:
@@ -75,6 +93,17 @@ def calc_max_width(str_list: list[str]) -> int:
     return max_width
 
 def align_cols(match_list, max_width, prefix = ""):
+    """
+    Align columns in a list of regex matches with proper spacing.
+    
+    Args:
+        match_list: List of regex matches containing type, width and name information
+        max_width: Maximum width to align to
+        prefix: Optional prefix to add before each line
+        
+    Returns:
+        list: List of aligned strings
+    """
     modified = []
     for match in match_list:
         width = ""
@@ -115,6 +144,18 @@ def is_instantiated(module_name, module_infos):
     return False
 
 def find_top_module(module_infos):
+    """
+    Find the top-level module in the design hierarchy.
+    
+    Args:
+        module_infos: List of module information objects
+        
+    Returns:
+        module_info: The top-level module object
+        
+    Raises:
+        SystemExit: If no top module is found or multiple potential tops exist
+    """
     top_module = None
 
     if top_module_name != "":
@@ -183,6 +224,17 @@ def get_ports_descriptions(ports: list[re.Match]) -> str:
     return result
 
 def get_all_registers(module, path, module_infos):
+    """
+    Recursively collect all register signals from a module and its instances.
+    
+    Args:
+        module: Current module to process
+        path: Current hierarchical path
+        module_infos: List of all module information objects
+        
+    Returns:
+        list: List of tuples containing (register, full_path, module_name)
+    """
     spy_signals = [] # reg, path, module_name
 
     # get all regs from the module
@@ -233,7 +285,15 @@ def insert_module_names(regs: list[str], spy_signals: list) -> list[str]:
     return modified_regs
 
 def parse_args():
-    # Set up argument parser
+    """
+    Parse command line arguments for the assertion interface generator.
+    
+    Returns:
+        argparse.Namespace: Parsed command line arguments
+        
+    Raises:
+        SystemExit: If input paths are invalid or output path is not a directory
+    """
     parser = argparse.ArgumentParser(description="System Verilog assertion interface generator")
 
     # verbosity
@@ -307,6 +367,15 @@ class module_info:
 
 
 def traverse_input_files(path: str) -> list[module_info]:
+    """
+    Traverse input files/directory and parse SystemVerilog modules.
+    
+    Args:
+        path: Path to input file or directory
+        
+    Returns:
+        list: List of parsed module information objects
+    """
     module_infos = []
 
     if os.path.isdir(path):
@@ -330,6 +399,16 @@ def traverse_input_files(path: str) -> list[module_info]:
     return module_infos
 
 def generate_if_bind(top_module: module_info, if_name: str) -> str:
+    """
+    Generate SystemVerilog bind statement for the assertion interface.
+    
+    Args:
+        top_module: Top-level module information object
+        if_name: Name of the assertion interface
+        
+    Returns:
+        str: Generated bind statement
+    """
     bind = f"bind {top_module.module_name} {if_name}"
 
     if len(top_module.param_matches) != 0:
@@ -357,6 +436,15 @@ def generate_if_bind(top_module: module_info, if_name: str) -> str:
     return bind
 
 def resolve_conflicts(spy_signals):
+    """
+    Resolve naming conflicts in spy signals by using hierarchical paths.
+    
+    Args:
+        spy_signals: List of spy signal tuples
+        
+    Returns:
+        list: List of resolved signal names
+    """
     reg_names = [t[0] for t in spy_signals]
 
     counts = Counter(reg_names)
@@ -365,13 +453,81 @@ def resolve_conflicts(spy_signals):
     result = []
     for sig in spy_signals:
         if sig[0] in duplicates:
-            result.append(sig[1][10:].replace('.', '_')) # use path from without `PATH_TOP
+            renamed_sig = {
+                "direction": None,
+                "type": sig[0]["type"],
+                "width": sig[0]["width"],
+                "name": sig[1][10:].replace('.', '_') # use path from without `PATH_TOP
+            }
+            result.append((renamed_sig, sig[1], sig[2]))
         else:
-            result.append(sig[0]["name"])
+            result.append(sig)
 
     return result
 
+def resolve_port_conflicts(spy_signals):
+    """
+    Resolve port naming conflicts by prioritizing output ports and using hierarchical paths.
+    
+    Args:
+        spy_signals: List of tuples containing (port_match, path, module_name)
+        
+    Returns:
+        list: List of resolved port signals with conflicts handled
+    """
+    # Group ports by name
+    port_groups = {}
+    for sig in spy_signals:
+        port_name = sig[0]["name"]
+        if port_name not in port_groups:
+            port_groups[port_name] = []
+        port_groups[port_name].append(sig)
+    
+    result = []
+    
+    # Process each group of ports with the same name
+    for port_name, ports in port_groups.items():
+        if len(ports) == 1:
+            # No conflict, add the port as is if it has more than one dot
+            if ports[0][1].count('.') > 1:
+                result.append(ports[0])
+        else:
+            # Find output ports
+            output_ports = [p for p in ports if p[0]["direction"] == "output"]
+            
+            if output_ports:
+                # If there are output ports, add all of them with renamed signals
+                for port in output_ports:
+                    # Skip if path has only one dot
+                    if port[1].count('.') <= 1:
+                        continue
+                    # Create a new dictionary with port information
+                    renamed_port = {
+                        "direction": port[0]["direction"],
+                        "type": port[0]["type"],
+                        "width": port[0]["width"],
+                        "name": port[1][10:].replace('.', '_')
+                    }
+                    result.append((renamed_port, port[1], port[2]))
+            else:
+                # If no output ports, find the port with shortest path
+                shortest_port = min(ports, key=lambda x: len(x[1]))
+                # Only add if path has more than one dot
+                if shortest_port[1].count('.') > 1:
+                    result.append(shortest_port)
+    
+    return result
+
 def remove_sv_comments(code):
+    """
+    Remove SystemVerilog comments from code.
+    
+    Args:
+        code: SystemVerilog code string
+        
+    Returns:
+        str: Code with comments removed
+    """
     # Remove multi-line comments
     code = re.sub(r"/\*.*?\*/", "", code, flags=re.DOTALL)
     
@@ -381,7 +537,13 @@ def remove_sv_comments(code):
     return code
 
 def main():
-
+    """
+    Main entry point for the assertion interface generator.
+    Processes input files, generates interface, and writes output.
+    
+    Raises:
+        SystemExit: If file generation is aborted
+    """
     # get script arguments
     args = parse_args()
 
