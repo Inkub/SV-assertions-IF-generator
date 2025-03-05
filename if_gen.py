@@ -246,6 +246,15 @@ def parse_args():
 
     # Output file directory
     parser.add_argument("-o", "--output", help="Path to the generated file directory")
+
+    # Add a mode argument with choices
+    parser.add_argument(
+        "-m",
+        "--mode", 
+        choices=["ports", "registers", "both"], 
+        default="both",  # Default mode
+        help="Select object that shall be used in the assertion interface: 'ports' for only ports, 'registers' for only registers, 'both' for all."
+    )
     
     args = parser.parse_args()
 
