@@ -2,25 +2,22 @@ import os
 import re
 import argparse
 import logging
+from dataclasses import dataclass
+from typing import List, Optional, Tuple, Dict
 from jinja2 import Environment, FileSystemLoader
 from collections import Counter
 
-# Path to the RTL file or directory
-path_to_rtl = "./rtl"
+@dataclass
+class Config:
+    """Configuration settings for the assertion interface generator."""
+    path_to_rtl: str = "./rtl"
+    top_module_name: str = ""
+    top_instance_name: str = "i_dut"
+    interface_name: str = ""
+    reg_pattern_suffix: str = "_s"
 
-# Design top module name
-top_module_name = ""
-
-# Name of the DUT instance (replace with top module instance_name)
-top_instance_name = "i_dut"
-
-# Name of the generated assertion interface.
-# Default: gen_< top_module_name >_asrt_if 
-interface_name = ""
-
-# Registers pattern suffix.
-# Default: _s
-reg_pattern_suffix = "_s"
+# Create global config instance
+config = Config()
 
 #---------------------------------------------------------------------------------------#
 
@@ -49,8 +46,8 @@ port_pattern = re.compile(r"""
 regs_pattern = re.compile(f"""
     \s*(?P<type>logic|\w+\_t)              # Named group: type
     \s*(?P<width>\[.*?\])?                 # Named group: width
-    \s*(?:\w+(?<!{reg_pattern_suffix})\s*,)?
-    \s*(?P<name>\w+{reg_pattern_suffix})   # Named group: name
+    \s*(?:\w+(?<!{config.reg_pattern_suffix})\s*,)?
+    \s*(?P<name>\w+{config.reg_pattern_suffix})   # Named group: name
     \s*(?:\w+)?\s*\;
 """, re.VERBOSE | re.DOTALL)
 
@@ -127,6 +124,15 @@ def align_cols(match_list, max_width, prefix = ""):
     return modified
 
 def align_str_col(cols: list[str]) -> list[str]:
+    """
+    Align strings in a list by padding with spaces to match the longest string.
+    
+    Args:
+        cols: List of strings to align
+        
+    Returns:
+        list: List of aligned strings with equal length
+    """
     max_width = calc_max_width(cols)
     result = []
     for col in cols:
@@ -137,6 +143,16 @@ def align_str_col(cols: list[str]) -> list[str]:
     return result
 
 def is_instantiated(module_name, module_infos):
+    """
+    Check if a module is instantiated in any other module.
+    
+    Args:
+        module_name: Name of the module to check
+        module_infos: List of all module information objects
+        
+    Returns:
+        bool: True if the module is instantiated, False otherwise
+    """
     for module in module_infos:
         for inst in module.instances:
             if inst[0] == module_name:
@@ -158,9 +174,9 @@ def find_top_module(module_infos):
     """
     top_module = None
 
-    if top_module_name != "":
+    if config.top_module_name != "":
         for module in module_infos:
-            if module.module_name == top_module_name:
+            if module.module_name == config.top_module_name:
                 top_module = module
             
     if top_module is None:
@@ -184,12 +200,31 @@ def find_top_module(module_infos):
     return top_module
 
 def get_module_info(module_name, module_infos):
+    """
+    Get module information object by module name.
+    
+    Args:
+        module_name: Name of the module to find
+        module_infos: List of all module information objects
+        
+    Returns:
+        module_info: Module information object if found, None otherwise
+    """
     for module in module_infos:
         if module.module_name == module_name:
             return module
     return None
 
 def get_module_title(module_name : str) -> str:
+    """
+    Generate a formatted title string for a module.
+    
+    Args:
+        module_name: Name of the module
+        
+    Returns:
+        str: Formatted title string with dashes and module name centered
+    """
     title = "//"
     prefix_len = int((84 - len(module_name)) / 2)
 
@@ -206,6 +241,15 @@ def get_module_title(module_name : str) -> str:
     return title
 
 def get_params_descriptions(params: list[re.Match]) -> str:
+    """
+    Generate parameter descriptions in a formatted string.
+    
+    Args:
+        params: List of parameter regex matches
+        
+    Returns:
+        str: Formatted string containing parameter descriptions
+    """
     result = ""
     for i in range(len(params)):
         param = params[i]
@@ -215,6 +259,15 @@ def get_params_descriptions(params: list[re.Match]) -> str:
     return result
 
 def get_ports_descriptions(ports: list[re.Match]) -> str:
+    """
+    Generate port descriptions in a formatted string.
+    
+    Args:
+        ports: List of port regex matches
+        
+    Returns:
+        str: Formatted string containing port descriptions
+    """
     result = ""
     for i in range(len(ports)):
         port = ports[i]
@@ -276,13 +329,10 @@ def insert_module_names(regs: list[str], spy_signals: list, args: argparse.Names
     modified_regs = []
     titles_inserted = 0
 
-    print(f"ports_count: {ports_count}")
-
     for i in range(len(spy_signals)):
         spy = spy_signals[i]
 
         if i == ports_count and args.mode != "ports":
-            print(f"inserting registers divider at {ports_count} + {titles_inserted}")
             modified_regs.insert(ports_count + titles_inserted,
                                  "  //-------------------------------------REGISTERS--------------------------------------//")
 
@@ -316,7 +366,7 @@ def parse_args():
                         help="Increase verbosity level (-v)")
     
     # Path to the RTL
-    parser.add_argument("-i", "--input", nargs='+', default=[path_to_rtl],
+    parser.add_argument("-i", "--input", nargs='+', default=[config.path_to_rtl],
                         help="Path to the RTL input files or directory")
 
     # Output file directory
@@ -347,17 +397,20 @@ def parse_args():
     
     return args
 
-class module_info:
-    def __init__(self, sv_code):
-        self.sv_code = sv_code
-        self.module_name = str | None
-        self.module_match = re.Match[str] | None
-        self.param_matches = []
-        self.port_matches = []
-        self.regs_matches = []
-        self.instances = []
+class ModuleInfo:
+    """Class to store and process SystemVerilog module information."""
     
-    def parse(self):
+    def __init__(self, sv_code: str):
+        self.sv_code = sv_code
+        self.module_name: Optional[str] = None
+        self.module_match: Optional[re.Match] = None
+        self.param_matches: List[re.Match] = []
+        self.port_matches: List[re.Match] = []
+        self.regs_matches: List[re.Match] = []
+        self.instances: List[Tuple[str, str]] = []
+    
+    def parse(self) -> None:
+        """Parse the SystemVerilog code to extract module information."""
         self.module_match = re.search(module_pattern, self.sv_code)
 
         if self.module_match:
@@ -372,16 +425,16 @@ class module_info:
 
             self.module_name = self.module_match['module_name']
 
-    def find_instances(self, module_names):
-        if self.module_match and len(module_names) != 0:
+    def find_instances(self, module_names: List[str]) -> None:
+        """Find all module instances in the current module."""
+        if self.module_match and module_names:
             inst_pattern = re.compile(rf"\b({'|'.join(module_names)})\b\s+(?:#\(.*?\))\s*(\w+)\s*\(")
-            instances = list(re.finditer(inst_pattern, self.module_match['body'])) # type: ignore
+            instances = list(re.finditer(inst_pattern, self.module_match['body']))
             for inst in instances:
                 logging.info(f"Found instance in {self.module_name}: {inst.group(1)} - {inst.group(2)}")
                 self.instances.append((inst.group(1), inst.group(2)))
 
-
-def traverse_input_files(path: str) -> list[module_info]:
+def traverse_input_files(path: str) -> list[ModuleInfo]:
     """
     Traverse input files/directory and parse SystemVerilog modules.
     
@@ -401,19 +454,19 @@ def traverse_input_files(path: str) -> list[module_info]:
                     content = ""
                     with open(file_path, "r", encoding="utf-8") as f:
                         content = remove_sv_comments(f.read())
-                        module = module_info(content)
+                        module = ModuleInfo(content)
                         module.parse()
                         module_infos.append(module)
     else:
         content = ""
         with open(path, "r", encoding="utf-8") as f:
             content = f.read()
-            module = module_info(content)
+            module = ModuleInfo(content)
             module.parse()
             module_infos.append(module)
     return module_infos
 
-def generate_if_bind(top_module: module_info, if_name: str) -> str:
+def generate_if_bind(top_module: ModuleInfo, if_name: str) -> str:
     """
     Generate SystemVerilog bind statement for the assertion interface.
     
@@ -551,53 +604,24 @@ def remove_sv_comments(code):
     
     return code
 
-def main():
+def process_spy_signals(top_module: ModuleInfo, mode: str, module_infos: List[ModuleInfo]) -> Tuple[List[Tuple], int]:
     """
-    Main entry point for the assertion interface generator.
-    Processes input files, generates interface, and writes output.
+    Process spy signals based on the selected mode.
     
-    Raises:
-        SystemExit: If file generation is aborted
-    """
-    # get script arguments
-    args = parse_args()
-
-    # Configure logging based on verbosity level
-    log_level = logging.WARNING  # Default: Show only warnings and errors
-    if args.verbose == 1:
-        log_level = logging.INFO   # Show info messages
-
-    logging.basicConfig(level=log_level, format="%(levelname)s: %(message)s")
-
-    module_infos = []
-
-    for input_arg in args.input:
-        module_infos += traverse_input_files(input_arg)
-
-    module_names = []
-
-    # get all modules names
-    for module in module_infos:
-        module_names.append(module.module_name)
-
-    # get all instances names
-    for module in module_infos:
-        module.find_instances(module_names)
+    Args:
+        top_module: Top-level module
+        mode: Operation mode ("ports", "registers", or "both")
+        module_infos: List of all module information objects
         
-    top_module = find_top_module(module_infos)
-    logging.info(f"Top module is detected: {top_module.module_name}")
-
-    # interface name
-    if_name = interface_name
-    if if_name == "":
-        if_name = f"{top_module.module_name}_asrt_if"
-
-    spy_signals = [] # regex match, path, module_name
+    Returns:
+        Tuple[List[Tuple], int]: List of spy signals and count of port signals
+    """
+    spy_signals = []
     ports_count = 0
 
-    if args.mode == "registers":
+    if mode == "registers":
         spy_signals = resolve_conflicts(get_all_registers(top_module, "`PATH_TOP", module_infos))
-    elif args.mode == "ports":
+    elif mode == "ports":
         spy_signals = resolve_port_conflicts(get_all_ports(top_module, "`PATH_TOP", module_infos))
     else:
         port_list = resolve_port_conflicts(get_all_ports(top_module, "`PATH_TOP", module_infos))
@@ -606,81 +630,137 @@ def main():
         spy_signals.extend(reg_list)
         ports_count = len(port_list)
 
+    return spy_signals, ports_count
+
+def generate_interface_content(top_module: ModuleInfo, spy_signals: List[Tuple], 
+                            ports_count: int, args: argparse.Namespace) -> Dict:
+    """
+    Generate interface content from module information and spy signals.
+    
+    Args:
+        top_module: Top-level module
+        spy_signals: List of spy signal tuples
+        ports_count: Number of port signals
+        args: Command line arguments
+        
+    Returns:
+        Dict: Dictionary containing interface content
+    """
     spy_list = [t[0] for t in spy_signals]
-
-    modified_ports = align_cols(top_module.port_matches, calc_max_type_width(top_module.port_matches), "input")
+    
+    modified_ports = align_cols(top_module.port_matches, 
+                              calc_max_type_width(top_module.port_matches), "input")
     modified_regs = align_cols(spy_list, calc_max_type_width(spy_list), "// var: ")
-
-    # insert relevant module names before registers SPYs declarations
+    
+    # Insert module names and dividers
     modified_regs = insert_module_names(modified_regs, spy_signals, args, ports_count)
-
-    # parameter descriptions
+    
+    # Generate descriptions
     parameter_descriptions = get_params_descriptions(top_module.param_matches)
+    port_descriptions = get_ports_descriptions(top_module.port_matches)
 
-    # port descriptions
-    port_descriptions= get_ports_descriptions(top_module.port_matches)
-
-    # Create the interface entity
-    interface_entity = f"interface {if_name} #( {top_module.module_match['parameters']} (\n  " + ",\n  ".join(modified_ports) + "\n);"
-
-    # Create spy signals declarations
+    # interface name
+    if_name = config.interface_name
+    if if_name == "":
+        if_name = f"{top_module.module_name}_asrt_if"
+    
+    # Create interface entity
+    interface_entity = f"interface {if_name} #( {top_module.module_match['parameters']} (\n  " + \
+                      ",\n  ".join(modified_ports) + "\n);"
+    
+    # Create spy declarations and assignments
     spy_declarations = f"\n\n".join(modified_regs)
-
-    # Assigns the spy signals to the RTL
-    spy_assigns = ""
     modified_lhs = align_str_col([spy[0]["name"] for spy in spy_signals])
-    for i in range(len(spy_signals)):
-        spy = spy_signals[i]
-        row = f"  assign {modified_lhs[i]} = {spy[1]};\n"
-        spy_assigns += row
-
-    # Load template from the current directory
-    env = Environment(loader=FileSystemLoader("."))  
-    template = env.get_template("asrt_if_template.j2")
-
-    # Data to insert into the template
-    data = {
+    spy_assigns = "".join(f"  assign {modified_lhs[i]} = {spy[1]};\n" 
+                         for i, spy in enumerate(spy_signals))
+    
+    return {
         "if_name": if_name,
         "module_name": top_module.module_name,
         "parameter_descriptions": parameter_descriptions,
         "port_descriptions": port_descriptions,
         "entity": interface_entity,
-        "top_instance": top_instance_name,
+        "top_instance": config.top_instance_name,
         "spy_decl": spy_declarations,
         "spy_assigns": spy_assigns
     }
 
-    # Render the template
-    output = template.render(data)
+def write_file(file_path: str, content: str) -> None:
+    """
+    Write content to a file, creating directories if needed.
+    
+    Args:
+        file_path: Path to the output file
+        content: Content to write to the file
+        
+    Raises:
+        SystemExit: If file writing fails
+    """
+    try:
+        # Create output directory if it doesn't exist
+        output_dir = os.path.dirname(file_path)
+        if output_dir and not os.path.exists(output_dir):
+            os.makedirs(output_dir, exist_ok=True)
+        
+        # Write the file
+        with open(file_path, 'w', encoding='utf-8') as f:
+            f.write(content)
+    except Exception as e:
+        logging.error(f"Failed to write file {file_path}: {str(e)}")
+        exit(1)
 
+def main():
+    """Main entry point for the assertion interface generator."""
+    # Parse arguments and setup logging
+    args = parse_args()
+    logging.basicConfig(
+        level=logging.INFO if args.verbose else logging.WARNING,
+        format="%(levelname)s: %(message)s"
+    )
+    
+    # Process input files
+    module_infos = []
+    for input_arg in args.input:
+        module_infos.extend(traverse_input_files(input_arg))
+    
+    # Find module names and instances
+    module_names = [module.module_name for module in module_infos]
+    for module in module_infos:
+        module.find_instances(module_names)
+    
+    # Find top module
+    top_module = find_top_module(module_infos)
+    logging.info(f"Top module detected: {top_module.module_name}")
+    
+    # Process spy signals
+    spy_signals, ports_count = process_spy_signals(top_module, args.mode, module_infos)
+    
+    # Generate interface content
+    interface_data = generate_interface_content(top_module, spy_signals, ports_count, args)
+    
+    # Render template
+    env = Environment(loader=FileSystemLoader("."))
+    template = env.get_template("asrt_if_template.j2")
+    output = template.render(interface_data)
+
+        # interface name
+    if_name = config.interface_name
+    if if_name == "":
+        if_name = f"{top_module.module_name}_asrt_if"
+    
+    # Write output file
     output_path = f"gen_{if_name}.sv"
     if args.output:
         output_path = f"{args.output}/gen_{if_name}.sv"
-
-    output_dir = os.path.dirname(output_path)
-    if output_dir and not os.path.exists(output_dir):
-        os.makedirs(output_dir, exist_ok=True)
-
-    # Check if the interface exists
-    if os.path.exists(output_path):
-        user_input = input(f"File '{output_path}' already exists. Do you want to regenerate it? [y/n]: ").strip().lower()
-
-        if user_input not in ["y", "yes"]:
-            print("Aborting file generation.")
-            exit(0)
-
-    # generate interface file
-    with open(output_path, "w") as f:
-        f.write(output)
-
+    
+    write_file(output_path, output)
     logging.info(f"Interface successfully generated into: {output_path}")
-
-    # Print out the interface's bind
+    
+    # Print bind statement
     print("Assertion interface bind:")
     print("------------------------------------------------------------")
     print(generate_if_bind(top_module, if_name))
     print("------------------------------------------------------------")
-
 
 if __name__ == "__main__":
     main()
